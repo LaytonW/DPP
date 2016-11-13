@@ -55,7 +55,6 @@ void *philosopher(void *arg) {
   sem_wait(&procPermit);
   printf("Philosopher %d: received condv, proceed.\n", id);
   while (1) {
-    srandom(seed);
     philStates[id] = THINKING;
     usleep(random() % 10000000 + 1);
     pthread_mutex_lock(&contLock);
@@ -150,6 +149,7 @@ void init() {
   forks = (pthread_mutex_t*)malloc(numPhil * sizeof(pthread_mutex_t));
   philStates = (philState_t*)malloc(numPhil * sizeof(philState_t));
   forkStates = (int*)malloc(numPhil * sizeof(int));
+  srandom(seed);
   size_t i;
   for (i = 0; i < numPhil; ++i) {
     pthread_mutex_init(&forks[i], NULL);
