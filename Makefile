@@ -5,7 +5,7 @@ DPP: DPP.c
 
 run: DPP
 	chmod +x DPP
-	./DPP
+	./DPP 5 423785293 30
 
 clean:
 	$(RM) DPP

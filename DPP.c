@@ -6,6 +6,10 @@
 
 #define LEFT_FORK_ID(philID) (philID)
 #define RIGHT_FORK_ID(philID) ((numPhil + philID - 1) % numPhil)
+#define SMALLER_FORK_ID(philID) (LEFT_FORK_ID(philID)<RIGHT_FORK_ID(philID)\
+                                  ? LEFT_FORK_ID(philID) : RIGHT_FORK_ID(philID))
+#define LARGER_FORK_ID(philID) (LEFT_FORK_ID(philID)<RIGHT_FORK_ID(philID)\
+                                  ? RIGHT_FORK_ID(philID) : LEFT_FORK_ID(philID))
 #define FREE -1
 
 typedef enum {
@@ -15,17 +19,19 @@ typedef enum {
   TERMINATED,
 } philState_t;
 void *philosopher(void *arg);
+void think(unsigned philID);
+void eat(unsigned philID);
+void acquireForks(unsigned philID);
+void releaseForks(unsigned philID);
 void *watcher(void *arg);
 void init();
 void start();
 void terminate();
-void acquireForks(unsigned philID);
-void releaseForks(unsigned philID);
 pthread_t watcherHandler, *phils;
 philState_t *philStates;
 int *forkStates;
-pthread_mutex_t contLock, *forks;
-sem_t initReady, procPermit;
+pthread_mutex_t contLock, stateLock, *forks;
+sem_t initReady, procPermit, watcherPermit;
 unsigned numPhil, seed, cont = 0;
 
 int main(int argc, char const *argv[]) {
@@ -46,42 +52,20 @@ int main(int argc, char const *argv[]) {
 void *philosopher(void *arg) {
   unsigned id = *((unsigned*)arg);
   free(arg);
-  printf("Creating philosopher %d\n", id);
   sem_post(&initReady);
   sem_wait(&procPermit);
-  printf("Philosopher %d: received condv, proceed.\n", id);
   while (1) {
-    srandom(seed);
-    philStates[id] = THINKING;
-    usleep(random() % 10000000 + 1);
-    pthread_mutex_lock(&contLock);
-    if (!cont) {
-      philStates[id] = TERMINATED;
-      pthread_mutex_unlock(&contLock);
-      pthread_exit(NULL);
-    }
-    pthread_mutex_unlock(&contLock);
-    philStates[id] = WAITING;
-    acquireForks(id);
-    philStates[id] = EATING;
-    usleep(random() % 10000000 + 1);
-    releaseForks(id);
-    pthread_mutex_lock(&contLock);
-    if (!cont) {
-      philStates[id] = TERMINATED;
-      pthread_mutex_unlock(&contLock);
-      pthread_exit(NULL);
-    }
-    pthread_mutex_unlock(&contLock);
+    think(id);
+    eat(id);
   }
+  pthread_exit(NULL);
 }
 
 void *watcher(void *arg) {
-  printf("Creating watcher\n");
   sem_post(&initReady);
-  sem_wait(&procPermit);
-  printf("Watcher: received condv, proceed.\n");
+  sem_wait(&watcherPermit);
   while (1) {
+    pthread_mutex_lock(&stateLock);
     size_t numThinking = 0, numEating = 0, numWaiting = 0, numTerm = 0;
     size_t numUse = 0, numAvail = 0;
     printf("Philo   State             Fork    Held by\n");
@@ -117,34 +101,80 @@ void *watcher(void *arg) {
     printf("Th=%2lu Wa=%2lu Ea=%2lu         ", numThinking, numWaiting, numEating);
     printf("Use=%2lu  Avail=%2lu\n\n\n", numUse, numAvail);
     if (numTerm == numPhil) {
+      pthread_mutex_unlock(&stateLock);
       pthread_exit(NULL);
     }
+    pthread_mutex_unlock(&stateLock);
     usleep(500000);
   }
 }
 
+void think(unsigned id) {
+  pthread_mutex_lock(&stateLock);
+  philStates[id] = THINKING;
+  pthread_mutex_unlock(&stateLock);
+  usleep(random() % 10000000 + 1);
+  pthread_mutex_lock(&contLock);
+  if (!cont) {
+    pthread_mutex_lock(&stateLock);
+    philStates[id] = TERMINATED;
+    pthread_mutex_unlock(&stateLock);
+    pthread_mutex_unlock(&contLock);
+    pthread_exit(NULL);
+  }
+  pthread_mutex_unlock(&contLock);
+}
+
+void eat(unsigned id) {
+  pthread_mutex_lock(&stateLock);
+  philStates[id] = WAITING;
+  pthread_mutex_unlock(&stateLock);
+  acquireForks(id);
+  usleep(random() % 10000000 + 1);
+  releaseForks(id);
+}
+
 void acquireForks(unsigned philID) {
-  pthread_mutex_lock(&forks[LEFT_FORK_ID(philID)]);
-  forkStates[LEFT_FORK_ID(philID)] = philID;
-  pthread_mutex_lock(&forks[RIGHT_FORK_ID(philID)]);
-  forkStates[RIGHT_FORK_ID(philID)] = philID;
+  pthread_mutex_lock(&forks[SMALLER_FORK_ID(philID)]);
+  pthread_mutex_lock(&stateLock);
+  forkStates[SMALLER_FORK_ID(philID)] = philID;
+  pthread_mutex_unlock(&stateLock);
+  pthread_mutex_lock(&forks[LARGER_FORK_ID(philID)]);
+  pthread_mutex_lock(&stateLock);
+  forkStates[LARGER_FORK_ID(philID)] = philID;
+  philStates[philID] = EATING;
+  pthread_mutex_unlock(&stateLock);
 }
 
 void releaseForks(unsigned philID) {
+  pthread_mutex_lock(&stateLock);
   pthread_mutex_unlock(&forks[LEFT_FORK_ID(philID)]);
   forkStates[LEFT_FORK_ID(philID)] = FREE;
   pthread_mutex_unlock(&forks[RIGHT_FORK_ID(philID)]);
   forkStates[RIGHT_FORK_ID(philID)] = FREE;
+  pthread_mutex_lock(&contLock);
+  if (!cont) {
+    philStates[philID] = TERMINATED;
+    pthread_mutex_unlock(&stateLock);
+    pthread_mutex_unlock(&contLock);
+    pthread_exit(NULL);
+  }
+  pthread_mutex_unlock(&contLock);
+  philStates[philID] = THINKING;
+  pthread_mutex_unlock(&stateLock);
 }
 
 void init() {
   pthread_mutex_init(&contLock, NULL);
+  pthread_mutex_init(&stateLock, NULL);
   sem_init(&initReady, 0, 0);
   sem_init(&procPermit, 0, 0);
+  sem_init(&watcherPermit, 0, 0);
   phils = (pthread_t*)malloc(numPhil * sizeof(pthread_t));
   forks = (pthread_mutex_t*)malloc(numPhil * sizeof(pthread_mutex_t));
   philStates = (philState_t*)malloc(numPhil * sizeof(philState_t));
   forkStates = (int*)malloc(numPhil * sizeof(int));
+  srandom(seed);
   size_t i;
   for (i = 0; i < numPhil; ++i) {
     pthread_mutex_init(&forks[i], NULL);
@@ -161,9 +191,10 @@ void init() {
 void start() {
   cont = 1;
   size_t i;
-  for (i = 0; i < numPhil + 1; ++i) {
+  for (i = 0; i < numPhil; ++i) {
     sem_post(&procPermit);
   }
+  sem_post(&watcherPermit);
 }
 
 void terminate() {
@@ -175,6 +206,14 @@ void terminate() {
     pthread_join(phils[i], NULL);
   }
   pthread_join(watcherHandler, NULL);
+  pthread_mutex_destroy(&contLock);
+  pthread_mutex_destroy(&stateLock);
+  for (i = 0; i < numPhil; ++i) {
+    pthread_mutex_destroy(&forks[i]);
+  }
+  sem_destroy(&initReady);
+  sem_destroy(&procPermit);
+  sem_destroy(&watcherPermit);
   free(phils);
   free(forks);
   free(philStates);
