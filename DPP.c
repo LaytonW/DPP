@@ -52,10 +52,8 @@ int main(int argc, char const *argv[]) {
 void *philosopher(void *arg) {
   unsigned id = *((unsigned*)arg);
   free(arg);
-  printf("Creating philosopher %d\n", id);
   sem_post(&initReady);
   sem_wait(&procPermit);
-  printf("Philosopher %d: received condv, proceed.\n", id);
   while (1) {
     think(id);
     eat(id);
@@ -64,10 +62,8 @@ void *philosopher(void *arg) {
 }
 
 void *watcher(void *arg) {
-  printf("Creating watcher\n");
   sem_post(&initReady);
   sem_wait(&watcherPermit);
-  printf("Watcher: received condv, proceed.\n");
   while (1) {
     pthread_mutex_lock(&stateLock);
     size_t numThinking = 0, numEating = 0, numWaiting = 0, numTerm = 0;
