@@ -6,6 +6,10 @@
 
 #define LEFT_FORK_ID(philID) (philID)
 #define RIGHT_FORK_ID(philID) ((numPhil + philID - 1) % numPhil)
+#define SMALLER_FORK_ID(philID) (LEFT_FORK_ID(philID)<RIGHT_FORK_ID(philID)\
+                                  ? LEFT_FORK_ID(philID) : RIGHT_FORK_ID(philID))
+#define LARGER_FORK_ID(philID) (LEFT_FORK_ID(philID)<RIGHT_FORK_ID(philID)\
+                                  ? RIGHT_FORK_ID(philID) : LEFT_FORK_ID(philID))
 #define FREE -1
 
 typedef enum {
@@ -25,7 +29,7 @@ pthread_t watcherHandler, *phils;
 philState_t *philStates;
 int *forkStates;
 pthread_mutex_t contLock, *forks;
-sem_t initReady, procPermit;
+sem_t initReady, procPermit, watcherPermit;
 unsigned numPhil, seed, cont = 0;
 
 int main(int argc, char const *argv[]) {
@@ -79,7 +83,7 @@ void *philosopher(void *arg) {
 void *watcher(void *arg) {
   printf("Creating watcher\n");
   sem_post(&initReady);
-  sem_wait(&procPermit);
+  sem_wait(&watcherPermit);
   printf("Watcher: received condv, proceed.\n");
   while (1) {
     size_t numThinking = 0, numEating = 0, numWaiting = 0, numTerm = 0;
@@ -124,10 +128,10 @@ void *watcher(void *arg) {
 }
 
 void acquireForks(unsigned philID) {
-  pthread_mutex_lock(&forks[LEFT_FORK_ID(philID)]);
-  forkStates[LEFT_FORK_ID(philID)] = philID;
-  pthread_mutex_lock(&forks[RIGHT_FORK_ID(philID)]);
-  forkStates[RIGHT_FORK_ID(philID)] = philID;
+  pthread_mutex_lock(&forks[SMALLER_FORK_ID(philID)]);
+  forkStates[SMALLER_FORK_ID(philID)] = philID;
+  pthread_mutex_lock(&forks[LARGER_FORK_ID(philID)]);
+  forkStates[LARGER_FORK_ID(philID)] = philID;
 }
 
 void releaseForks(unsigned philID) {
@@ -141,6 +145,7 @@ void init() {
   pthread_mutex_init(&contLock, NULL);
   sem_init(&initReady, 0, 0);
   sem_init(&procPermit, 0, 0);
+  sem_init(&watcherPermit, 0, 0);
   phils = (pthread_t*)malloc(numPhil * sizeof(pthread_t));
   forks = (pthread_mutex_t*)malloc(numPhil * sizeof(pthread_mutex_t));
   philStates = (philState_t*)malloc(numPhil * sizeof(philState_t));
@@ -161,9 +166,10 @@ void init() {
 void start() {
   cont = 1;
   size_t i;
-  for (i = 0; i < numPhil + 1; ++i) {
+  for (i = 0; i < numPhil; ++i) {
     sem_post(&procPermit);
   }
+  sem_post(&watcherPermit);
 }
 
 void terminate() {
