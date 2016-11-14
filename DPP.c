@@ -1,7 +1,7 @@
 /************************************************************
 * Student name and No.: WANG Zixu 3035140067
 * Development platform: Ubuntu 16.04 LTS and Ubuntu 14.04 LTS
-* Last modified date: Nov 13, 2016
+* Last modified date: Nov 14, 2016
 * Compilation: gcc DPP.c -o DPP -Wall -pthread
 *************************************************************/
 
@@ -243,88 +243,145 @@ void eat(unsigned id) {
   releaseForks(id);
 }
 
+// Acquire forks before eating
+// Use resource hierarchy solution to avoid deadlock:
+// Each fork is identified by a unique fork ID
+// Each philosopher must acquire forks by the order of fork ID
 void acquireForks(unsigned philID) {
+  // Try to acquire the fork with smaller ID
   pthread_mutex_lock(&forks[SMALLER_FORK_ID(philID)]);
+  // Fork with smaller ID acquired, lock states to
+  // update fork state
   pthread_mutex_lock(&stateLock);
   forkStates[SMALLER_FORK_ID(philID)] = philID;
+  // Release lock for states
   pthread_mutex_unlock(&stateLock);
+  // Try to acquire the fork with larger ID
   pthread_mutex_lock(&forks[LARGER_FORK_ID(philID)]);
+  // Fork with smaller ID acquired, lock states to
+  // update fork state as well as philosopher state
   pthread_mutex_lock(&stateLock);
   forkStates[LARGER_FORK_ID(philID)] = philID;
   philStates[philID] = EATING;
+  // Release lock for states
   pthread_mutex_unlock(&stateLock);
 }
 
+// Release forks after eating
+// Order here doesn't matter
 void releaseForks(unsigned philID) {
+  // Lock states to update fork and philosopher states
   pthread_mutex_lock(&stateLock);
+  // Release left fork and update state to free
   pthread_mutex_unlock(&forks[LEFT_FORK_ID(philID)]);
   forkStates[LEFT_FORK_ID(philID)] = FREE;
+  // Release right fork and update state to free
   pthread_mutex_unlock(&forks[RIGHT_FORK_ID(philID)]);
   forkStates[RIGHT_FORK_ID(philID)] = FREE;
+  // Lock continue flag to check whether to continue
   pthread_mutex_lock(&contLock);
   if (!cont) {
+    // If not to continue
+    // Update state to TERMINATED
     philStates[philID] = TERMINATED;
+    // Release lock for states
     pthread_mutex_unlock(&stateLock);
+    // Release lock for continue flag
     pthread_mutex_unlock(&contLock);
+    // Exit
     pthread_exit(NULL);
   }
+  // Release lock for continue flag
   pthread_mutex_unlock(&contLock);
+  // If continue, update state to thinking
   philStates[philID] = THINKING;
+  // Release lock for states
   pthread_mutex_unlock(&stateLock);
 }
 
+// Initializing everything.
+// Initialize locks and semaphores, allocate memory,
+// create and organize threads
+// Post condition: locks and semaphores initialized and
+// all threads ready and waiting for permit to proceed
 void init() {
+  // Initialize mutex locks
   pthread_mutex_init(&contLock, NULL);
   pthread_mutex_init(&stateLock, NULL);
+  // Initialize semaphores
   sem_init(&initReady, 0, 0);
   sem_init(&procPermit, 0, 0);
   sem_init(&watcherPermit, 0, 0);
+  // Allocate memory
   phils = (pthread_t*)malloc(numPhil * sizeof(pthread_t));
   forks = (pthread_mutex_t*)malloc(numPhil * sizeof(pthread_mutex_t));
   philStates = (philState_t*)malloc(numPhil * sizeof(philState_t));
   forkStates = (int*)malloc(numPhil * sizeof(int));
+  // Apply random seed
   srandom(seed);
+  // Create philosopher threads
   size_t i;
   for (i = 0; i < numPhil; ++i) {
+    // Initialize forks
     pthread_mutex_init(&forks[i], NULL);
     forkStates[i] = FREE;
+    // Record current philosopher ID
     unsigned *arg = (unsigned*)malloc(sizeof(unsigned));
     *arg = i;
+    // Create philosopher thread
     pthread_create(&phils[i], NULL, philosopher, (void*)arg);
+    // Wait for philosopher thread to initialize
     sem_wait(&initReady);
   }
+  // Create watcher thread
   pthread_create(&watcherHandler, NULL, watcher, NULL);
+  // Wait for watcher thread to initialize
   sem_wait(&initReady);
+  // All threads are ready and waiting at here
 }
 
+// After initialization ready, start the simulation
 void start() {
+  // Set continue flag
   cont = 1;
+  // Signal all philosophers to proceed
   size_t i;
   for (i = 0; i < numPhil; ++i) {
     sem_post(&procPermit);
   }
+  // After all philosophers are set off, signal watcher to proceed
   sem_post(&watcherPermit);
 }
 
+// When time's up, terminate the simulation
 void terminate() {
+  // Lock continue flag to unset the flag
   pthread_mutex_lock(&contLock);
   cont = 0;
+  // Release lock for continue flag
   pthread_mutex_unlock(&contLock);
+  // Wait for all philosopher threads to terminate
   size_t i;
   for (i = 0; i < numPhil; ++i) {
     pthread_join(phils[i], NULL);
   }
+  // Wait for watcher thread to terminate
   pthread_join(watcherHandler, NULL);
+  // Cleaning up
+  // Destroy locks
   pthread_mutex_destroy(&contLock);
   pthread_mutex_destroy(&stateLock);
   for (i = 0; i < numPhil; ++i) {
     pthread_mutex_destroy(&forks[i]);
   }
+  // Destroy semaphores
   sem_destroy(&initReady);
   sem_destroy(&procPermit);
   sem_destroy(&watcherPermit);
+  // Release memory
   free(phils);
   free(forks);
   free(philStates);
   free(forkStates);
+  // Done
 }
