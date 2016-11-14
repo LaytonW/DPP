@@ -207,6 +207,8 @@ void think(unsigned id) {
   // [1 microsecond, 10 seconds (=10000000 microseconds)]
   usleep(random() % 10000000 + 1);
   // Lock continue flag to check whether to continue
+  // Get stateLock first to avoid deadlock between
+  // stateLock and contLock using resourse hierarchy
   pthread_mutex_lock(&stateLock);
   pthread_mutex_lock(&contLock);
   if (!cont) {
