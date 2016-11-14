@@ -207,22 +207,23 @@ void think(unsigned id) {
   // [1 microsecond, 10 seconds (=10000000 microseconds)]
   usleep(random() % 10000000 + 1);
   // Lock continue flag to check whether to continue
+  pthread_mutex_lock(&stateLock);
   pthread_mutex_lock(&contLock);
   if (!cont) {
     // If not to continue
-    // Lock state to update state
-    pthread_mutex_lock(&stateLock);
     // Update state to TERMINATED
     philStates[id] = TERMINATED;
-    // Release lock for states
-    pthread_mutex_unlock(&stateLock);
     // Release lock for continue flag
     pthread_mutex_unlock(&contLock);
+    // Release lock for states
+    pthread_mutex_unlock(&stateLock);
     // Exit
     pthread_exit(NULL);
   }
   // Release lock for continue flag
   pthread_mutex_unlock(&contLock);
+  // Release lock for states
+  pthread_mutex_unlock(&stateLock);
 }
 
 // Philosopher eating
@@ -284,10 +285,10 @@ void releaseForks(unsigned philID) {
     // If not to continue
     // Update state to TERMINATED
     philStates[philID] = TERMINATED;
-    // Release lock for states
-    pthread_mutex_unlock(&stateLock);
     // Release lock for continue flag
     pthread_mutex_unlock(&contLock);
+    // Release lock for states
+    pthread_mutex_unlock(&stateLock);
     // Exit
     pthread_exit(NULL);
   }
