@@ -1,6 +1,7 @@
 /************************************************************
 * Student name and No.: WANG Zixu 3035140067
-* Development platform: Ubuntu 16.04 LTS and Ubuntu 14.04 LTS
+* Development platform: 64-bit Ubuntu 16.04 LTS and
+*                       64-bit Ubuntu 14.04 LTS
 * Last modified date: Nov 14, 2016
 * Compilation: gcc DPP.c -o DPP -Wall -pthread
 *************************************************************/
